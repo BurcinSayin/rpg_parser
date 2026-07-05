@@ -18,6 +18,9 @@ GEMINI.md
 # Agent scratch/plan files
 .gemini
 
+# ignore air
+.air
+
 # Scrape / fetch outputs (generated data dumps; samples/ stays tracked)
 scraped.json
 test_scraped*.json
