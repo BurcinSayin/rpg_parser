@@ -1,4 +1,5 @@
 import json
+import threading
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -25,8 +26,29 @@ class Open5eJsonFetcher:
     """
 
     def __init__(self, session: requests.Session | None = None, timeout: float = 30.0):
-        self.session = session or self._build_session()
+        self._injected_session = session
+        self._local = threading.local()
         self.timeout = timeout
+
+    @property
+    def session(self) -> requests.Session:
+        """Return a per-thread requests.Session.
+
+        requests.Session is not thread-safe, and a bulk scrape fans this fetcher
+        out across a ThreadPoolExecutor, so each worker thread lazily builds and
+        reuses its own Session. (Most ``dnd5e`` scrape records short-circuit on
+        the embedded-record path before touching the session, but the networked
+        detail-fetch path still needs it.) A session injected via the constructor
+        (a DI/testing hook) is returned as-is and is the caller's responsibility
+        to use safely across threads.
+        """
+        if self._injected_session is not None:
+            return self._injected_session
+        session = getattr(self._local, "session", None)
+        if session is None:
+            session = self._build_session()
+            self._local.session = session
+        return session
 
     def _build_session(self) -> requests.Session:
         session = requests.Session()
