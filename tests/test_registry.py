@@ -44,6 +44,7 @@ class TestRegistry(unittest.TestCase):
         self.assertIsInstance(pipeline.fetcher, Open5eJsonFetcher)
         self.assertIsInstance(pipeline.parser, Dnd5eOpen5eSpellParser)
         self.assertIsInstance(pipeline.exporter, JsonFileExporter)
+        
     def test_default_source_dnd5e_is_open5e(self):
         self.assertEqual(default_source("dnd5e"), "open5e")
 
