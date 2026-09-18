@@ -51,6 +51,9 @@ class AoNHtmlFetcher:
         session.mount("https://", adapter)
         return session
 
+    def requires_network(self, request: FetchRequest) -> bool:
+        return True
+
     def fetch(self, request: FetchRequest) -> RawDocument:
         response = self.session.get(
             request.location,

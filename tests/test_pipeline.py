@@ -5,6 +5,9 @@ from rpg_parser.core.ports import ExportTarget, FetchRequest, PipelineSpec, RawD
 
 
 class FakeFetcher:
+    def requires_network(self, request: FetchRequest) -> bool:
+        return True
+
     def __init__(self):
         self.calls = []
 

@@ -1,5 +1,6 @@
 import threading
 import unittest
+from unittest.mock import Mock
 
 import requests
 
@@ -15,6 +16,23 @@ from rpg_parser.core.ports import (
 )
 
 FETCHER_CLASSES = (AoNHtmlFetcher, Open5eJsonFetcher)
+
+
+class TestFetcherNetworkRequirement(unittest.TestCase):
+    def test_declaration_matches_fetch_path_without_io(self):
+        for params, needs_network in ((None, True), ({}, True), ({"record": None}, True),
+                                      ({"record": {}}, False), ({"record": {"name": "Light"}}, False)):
+            request = FetchRequest("https://example.test/spell", params=params)
+            for cls in FETCHER_CLASSES:
+                with self.subTest(cls=cls.__name__, params=params):
+                    session = Mock()
+                    session.get.return_value.text = "{}"
+                    fetcher = cls(session=session)
+                    expected = True if cls is AoNHtmlFetcher else needs_network
+                    self.assertEqual(fetcher.requires_network(request), expected)
+                    session.get.assert_not_called()
+                    fetcher.fetch(request)
+                    self.assertEqual(session.get.call_count, int(expected))
 
 
 def collect_sessions_across_threads(fetcher, n=2):

@@ -63,6 +63,9 @@ class Open5eJsonFetcher:
         session.mount("https://", adapter)
         return session
 
+    def requires_network(self, request: FetchRequest) -> bool:
+        return (request.params or {}).get("record") is None
+
     def fetch(self, request: FetchRequest) -> RawDocument:
         record = (request.params or {}).get("record")
         if record is not None:
