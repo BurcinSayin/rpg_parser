@@ -1,3 +1,4 @@
+import json
 import time
 import unittest
 from unittest.mock import Mock, call, patch
@@ -32,6 +33,11 @@ class FakeParser:
         return {"Name": document.content.rsplit("/", 1)[-1]}
 
 
+class JsonParser:
+    def parse(self, document: RawDocument) -> dict:
+        return json.loads(document.content)
+
+
 class FakeExporter:
     def __init__(self):
         self.calls = []
@@ -48,22 +54,32 @@ class TestScrapePipeline(unittest.TestCase):
                                   (True, True, True), (False, True, False, True, False)):
                 for delay in (None, 0, 0.5):
                     with self.subTest(workers=workers, flags=network_flags, delay=delay):
+                        expected_records = [
+                            {"id": index, "name": f"Spell {index}"}
+                            for index in range(len(network_flags))
+                        ]
                         requests = [
                             FetchRequest(
                                 location=f"https://example.test/{index}",
-                                params=None if network else {"record": {}},
+                                params=None if network else {"record": expected_records[index]},
                             )
                             for index, network in enumerate(network_flags)
                         ]
                         scraper = Mock()
                         scraper.discover.return_value = iter(requests)
                         session = Mock()
-                        session.get.return_value.text = "{}"
+
+                        def get_response(url, **kwargs):
+                            # Match by URL so worker scheduling cannot change the payload.
+                            index = int(url.rsplit("/", 1)[-1])
+                            return Mock(text=json.dumps(expected_records[index]))
+
+                        session.get.side_effect = get_response
                         exporter = FakeExporter()
                         spec = ScrapePipelineSpec(
                             scraper=scraper,
                             fetcher=Open5eJsonFetcher(session=session),
-                            parser=FakeParser(),
+                            parser=JsonParser(),
                             exporter=exporter,
                         )
                         with patch("rpg_parser.core.pipeline.time.sleep") as sleep:
@@ -76,11 +92,46 @@ class TestScrapePipeline(unittest.TestCase):
                         expected_sleeps = max(sum(network_flags) - 1, 0) if effective_delay else 0
                         self.assertEqual(sleep.call_args_list, [call(effective_delay)] * expected_sleeps)
                         self.assertEqual(session.get.call_count, sum(network_flags))
-                        self.assertEqual(len(records), len(requests))
+                        self.assertEqual(records, expected_records)
                         self.assertEqual(
-                            [target.location for _, target in exporter.calls],
-                            [request.location for request in requests],
+                            exporter.calls,
+                            [
+                                (data, ExportTarget(request.location))
+                                for data, request in zip(expected_records, requests, strict=True)
+                            ],
                         )
+
+    def test_legacy_fetcher_retains_network_pacing_in_both_modes(self):
+        class LegacyFetcher:
+            def fetch(self, request: FetchRequest) -> RawDocument:
+                return RawDocument(content=request.location, source=request.location)
+
+        for workers in (1, 3):
+            for delay in (None, 0, 0.5):
+                with self.subTest(workers=workers, delay=delay):
+                    exporter = FakeExporter()
+                    spec = ScrapePipelineSpec(
+                        scraper=FakeScraper(),
+                        fetcher=LegacyFetcher(),
+                        parser=FakeParser(),
+                        exporter=exporter,
+                    )
+                    with patch("rpg_parser.core.pipeline.time.sleep") as sleep:
+                        records = run_scrape_pipeline(
+                            spec, ScrapeRequest(), delay_seconds=delay,
+                            max_workers=workers,
+                            target_factory=lambda data, index, request: ExportTarget(request.location),
+                        )
+                    effective_delay = 1.0 if delay is None else delay
+                    self.assertEqual(
+                        sleep.call_args_list,
+                        [call(effective_delay)] if effective_delay else [],
+                    )
+                    self.assertEqual(records, [{"Name": "one"}, {"Name": "two"}])
+                    self.assertEqual(exporter.calls, [
+                        ({"Name": "one"}, ExportTarget("https://example.test/one")),
+                        ({"Name": "two"}, ExportTarget("https://example.test/two")),
+                    ])
 
     def test_run_scrape_pipeline_discovers_fetches_parses_and_exports_many(self):
         exporter = FakeExporter()

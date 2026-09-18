@@ -48,7 +48,10 @@ def run_scrape_pipeline(
         # Called by the submitting thread in both modes. Local records neither
         # incur a delay nor reset pacing between network-backed fetches.
         nonlocal network_fetch_seen
-        if spec.fetcher.requires_network(fetch_request):
+        # Preserve pacing for legacy fetchers that only implement fetch().
+        requires_network = getattr(spec.fetcher, "requires_network", None)
+        needs_network = requires_network(fetch_request) if requires_network is not None else True
+        if needs_network:
             if network_fetch_seen and delay:
                 time.sleep(delay)
             network_fetch_seen = True
