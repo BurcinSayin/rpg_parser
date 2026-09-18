@@ -37,6 +37,9 @@ class ScrapeRequest:
 
 
 class Fetcher(Protocol):
+    def requires_network(self, request: FetchRequest) -> bool:
+        """Declare whether fetching this request needs network access, without I/O."""
+
     def fetch(self, request: FetchRequest) -> RawDocument:
         """Fetch raw content from an external source."""
 

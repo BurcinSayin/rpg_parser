@@ -42,6 +42,17 @@ def run_scrape_pipeline(
     if delay < 0:
         raise ValueError("delay_seconds must be non-negative")
 
+    network_fetch_seen = False
+
+    def pace_fetch(fetch_request: FetchRequest) -> None:
+        # Called by the submitting thread in both modes. Local records neither
+        # incur a delay nor reset pacing between network-backed fetches.
+        nonlocal network_fetch_seen
+        if spec.fetcher.requires_network(fetch_request):
+            if network_fetch_seen and delay:
+                time.sleep(delay)
+            network_fetch_seen = True
+
     def fetch_and_parse(fetch_request: FetchRequest) -> dict[str, Any]:
         raw_document = spec.fetcher.fetch(fetch_request)
         return spec.parser.parse(raw_document)
@@ -62,8 +73,7 @@ def run_scrape_pipeline(
     if max_workers == 1:
         records = []
         for index, fetch_request in enumerate(spec.scraper.discover(request), start=1):
-            if index > 1 and delay:
-                time.sleep(delay)
+            pace_fetch(fetch_request)
             data = fetch_and_parse(fetch_request)
             add_record(records, index, fetch_request, data)
         return records
@@ -73,8 +83,7 @@ def run_scrape_pipeline(
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_request = {}
         for index, fetch_request in enumerate(spec.scraper.discover(request), start=1):
-            if index > 1 and delay:
-                time.sleep(delay)
+            pace_fetch(fetch_request)
             future = executor.submit(fetch_and_parse, fetch_request)
             future_to_request[future] = (index, fetch_request)
 

@@ -199,6 +199,12 @@ The project uses a small ports-and-adapters shape under `rpg_parser/`.
 
 To add a new RPG system, content type, or source, add the relevant adapter implementations and register them in `rpg_parser/registry.py`. Avoid wiring source-specific parser or scraper behavior directly into `cli.py`.
 
+Fetchers must implement `requires_network(request) -> bool` as a side-effect-free
+declaration alongside `fetch(request)`. The scrape pipeline applies `--delay`
+only between network-backed fetches (or their submissions when using workers).
+Embedded Open5e records skip this delay; AoN detail pages and Open5e detail URLs
+retain it. Discovery pagination and HTTP retries remain the adapters' responsibility.
+
 ## Testing
 
 Run all tests:
