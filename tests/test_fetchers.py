@@ -4,8 +4,20 @@ from unittest.mock import Mock
 
 import requests
 
-from rpg_parser.adapters.fetchers.aon import AoNHtmlFetcher
-from rpg_parser.adapters.fetchers.open5e import Open5eJsonFetcher
+from rpg_parser.adapters.fetchers.aon import AON_USER_AGENT, AoNHtmlFetcher
+from rpg_parser.adapters.fetchers.open5e import OPEN5E_USER_AGENT, Open5eJsonFetcher
+from rpg_parser.adapters.http import (
+    RETRY_ALLOWED_METHODS,
+    RETRY_BACKOFF_FACTOR,
+    RETRY_STATUS_FORCELIST,
+    RETRY_TOTAL,
+    USER_AGENT,
+    build_retry_session,
+)
+from rpg_parser.adapters.scrapers.open5e import (
+    OPEN5E_RETRY_STATUS_FORCELIST,
+    Dnd5eOpen5eSpellScraper,
+)
 from rpg_parser.core.pipeline import run_scrape_pipeline
 from rpg_parser.core.ports import (
     ExportTarget,
@@ -16,6 +28,40 @@ from rpg_parser.core.ports import (
 )
 
 FETCHER_CLASSES = (AoNHtmlFetcher, Open5eJsonFetcher)
+
+
+class TestSharedHttpHelper(unittest.TestCase):
+    def test_user_agent_and_retry_constants_are_shared(self):
+        self.assertIs(AON_USER_AGENT, USER_AGENT)
+        self.assertIs(OPEN5E_USER_AGENT, USER_AGENT)
+        self.assertEqual(OPEN5E_RETRY_STATUS_FORCELIST, RETRY_STATUS_FORCELIST)
+
+    def test_build_retry_session_mounts_retry_adapters_consistently(self):
+        sessions = (
+            ("helper", build_retry_session()),
+            ("AoNHtmlFetcher", AoNHtmlFetcher()._build_session()),
+            ("Open5eJsonFetcher", Open5eJsonFetcher()._build_session()),
+            ("Dnd5eOpen5eSpellScraper", Dnd5eOpen5eSpellScraper()._build_session()),
+        )
+        for label, session in sessions:
+            with self.subTest(source=label):
+                try:
+                    for prefix in ("http://", "https://"):
+                        adapter = session.get_adapter(f"{prefix}example.test")
+                        retries = adapter.max_retries
+                        self.assertEqual(retries.total, RETRY_TOTAL)
+                        self.assertEqual(retries.backoff_factor, RETRY_BACKOFF_FACTOR)
+                        self.assertEqual(
+                            tuple(retries.status_forcelist),
+                            RETRY_STATUS_FORCELIST,
+                        )
+                        self.assertEqual(
+                            frozenset(retries.allowed_methods),
+                            frozenset(RETRY_ALLOWED_METHODS),
+                        )
+                        self.assertTrue(retries.respect_retry_after_header)
+                finally:
+                    session.close()
 
 
 class TestFetcherNetworkRequirement(unittest.TestCase):

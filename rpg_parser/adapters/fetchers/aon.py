@@ -2,14 +2,13 @@ import threading
 from typing import Any
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
+from rpg_parser.adapters.http import USER_AGENT, build_retry_session
 from rpg_parser.core.ports import FetchRequest, RawDocument
 
 # Identify the client honestly rather than spoofing a browser, so Archives of
 # Nethys can recognize (and if needed, contact) this tool's traffic.
-AON_USER_AGENT = "rpg-parser/0.1 (+https://github.com/BurcinSayin/rpg_parser)"
+AON_USER_AGENT = USER_AGENT
 
 
 class AoNHtmlFetcher:
@@ -39,17 +38,7 @@ class AoNHtmlFetcher:
         return session
 
     def _build_session(self) -> requests.Session:
-        session = requests.Session()
-        retries = Retry(
-            total=3,
-            backoff_factor=0.5,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["GET"],
-        )
-        adapter = HTTPAdapter(max_retries=retries)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-        return session
+        return build_retry_session()
 
     def requires_network(self, request: FetchRequest) -> bool:
         return True

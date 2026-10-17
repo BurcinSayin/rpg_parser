@@ -2,14 +2,13 @@ import time
 from collections.abc import Iterable
 
 import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from rpg_parser.adapters.fetchers.open5e import OPEN5E_USER_AGENT
+from rpg_parser.adapters.http import RETRY_STATUS_FORCELIST, build_retry_session
 from rpg_parser.core.ports import FetchRequest, ScrapeRequest
 
 OPEN5E_PAGE_DELAY_SECONDS = 1.0
-OPEN5E_RETRY_STATUS_FORCELIST = (429, 500, 502, 503, 504)
+OPEN5E_RETRY_STATUS_FORCELIST = RETRY_STATUS_FORCELIST
 
 
 class Dnd5eOpen5eSpellScraper:
@@ -46,18 +45,7 @@ class Dnd5eOpen5eSpellScraper:
         self._injected_session = session
 
     def _build_session(self) -> requests.Session:
-        session = requests.Session()
-        retries = Retry(
-            total=3,
-            backoff_factor=0.5,
-            status_forcelist=list(OPEN5E_RETRY_STATUS_FORCELIST),
-            allowed_methods=["GET"],
-            respect_retry_after_header=True,
-        )
-        adapter = HTTPAdapter(max_retries=retries)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
-        return session
+        return build_retry_session()
 
     def discover(self, request: ScrapeRequest) -> Iterable[FetchRequest]:
         limit = request.limit
