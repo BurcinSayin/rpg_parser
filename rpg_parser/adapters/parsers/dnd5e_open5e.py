@@ -38,6 +38,28 @@ def _components(spell: dict[str, Any]) -> str:
     return ", ".join(parts)
 
 
+def _range(spell: dict[str, Any]) -> str | None:
+    range_text = spell.get("range_text")
+    if isinstance(range_text, str):
+        range_text = range_text.strip()
+    if range_text:
+        return str(range_text)
+
+    raw_range = spell.get("range")
+    if raw_range is None or isinstance(raw_range, bool):
+        return None
+    value = str(raw_range).strip()
+    if not value:
+        return None
+
+    unit = spell.get("range_unit")
+    if isinstance(unit, str):
+        unit = unit.strip()
+    if unit:
+        return f"{value} {unit}"
+    return value
+
+
 def _attribution(spell: dict[str, Any]) -> str:
     document = spell.get("document") or {}
     title = document.get("name")
@@ -61,7 +83,7 @@ class Dnd5eOpen5eSpellParser:
             "Level": spell.get("level"),
             "School": (spell.get("school") or {}).get("name"),
             "Casting Time": spell.get("casting_time"),
-            "Range": spell.get("range_text") or _stringify(spell.get("range")),
+            "Range": _range(spell),
             "Components": _components(spell),
             "Duration": spell.get("duration"),
             "Ritual": bool(spell.get("ritual")),
@@ -84,9 +106,3 @@ class Dnd5eOpen5eSpellParser:
             spell_data["key"] = spell["key"]
 
         return spell_data
-
-
-def _stringify(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value)

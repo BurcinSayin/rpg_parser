@@ -69,12 +69,41 @@ class TestDnd5eOpen5eSpellParser(unittest.TestCase):
 
         self.assertEqual(result["id"], "sparse-spell")
         self.assertEqual(result["Name"], "Sparse Spell")
+        self.assertIsNone(result["Level"])
+        self.assertIsNone(result["School"])
+        self.assertIsNone(result["Casting Time"])
+        self.assertIsNone(result["Range"])
+        self.assertIsNone(result["Duration"])
         self.assertEqual(result["Classes"], [])
         self.assertEqual(result["Components"], "")
         self.assertNotIn("Material", result)
         self.assertNotIn("Higher Levels", result)
         # Attribution always falls back even without a document block.
         self.assertIn("CC-BY-4.0", result["Source"])
+
+    def test_range_composes_value_and_unit_when_range_text_missing(self):
+        for payload, expected in (
+            ({"name": "A", "range_text": "", "range": 150, "range_unit": "feet"}, "150 feet"),
+            ({"name": "B", "range_text": None, "range": 60, "range_unit": "feet"}, "60 feet"),
+            ({"name": "C", "range": 0, "range_unit": "feet"}, "0 feet"),
+            ({"name": "D", "range_text": "", "range": 150, "range_unit": None}, "150"),
+            ({"name": "E", "range_text": "", "range": 150, "range_unit": ""}, "150"),
+            ({"name": "F", "range_text": "Self", "range": 0, "range_unit": "feet"}, "Self"),
+        ):
+            with self.subTest(payload=payload):
+                result = self._parse(json.dumps(payload))
+                self.assertEqual(result["Range"], expected)
+
+    def test_range_is_none_when_both_range_text_and_range_absent(self):
+        for payload in (
+            {"name": "A", "range_text": None, "range": None, "range_unit": "feet"},
+            {"name": "B", "range_text": "", "range": None, "range_unit": "feet"},
+            {"name": "C", "range_text": "   ", "range": ""},
+            {"name": "D", "range": False, "range_unit": "feet"},
+        ):
+            with self.subTest(payload=payload):
+                result = self._parse(json.dumps(payload))
+                self.assertIsNone(result["Range"])
 
 
 if __name__ == "__main__":
