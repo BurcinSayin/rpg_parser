@@ -136,7 +136,7 @@ For larger scrapes, increase concurrency cautiously:
 uv run python cli.py scrape --tradition arcane --workers 4 --delay 0.25 -o scraped.json
 ```
 
-PF2e scrape discovery uses the AoN Elasticsearch endpoint. PF1e scrape discovery parses `https://aonprd.com/Spells.aspx?Class=All` for spell detail links. D&D 5e scrape discovery pages through the Open5e v2 spell list (`https://api.open5e.com/v2/spells/?document__key=srd-2024`); because that endpoint already returns the full spell objects, each one is parsed directly without a second per-spell request (so `--delay`/`--workers` have little effect for `dnd5e`). The `--tradition` filter applies only to PF2e.
+PF2e scrape discovery uses the AoN Elasticsearch endpoint. PF1e scrape discovery parses `https://aonprd.com/Spells.aspx?Class=All` for spell detail links. D&D 5e scrape discovery pages through the Open5e v2 spell list (`https://api.open5e.com/v2/spells/?document__key=srd-2024`); because that endpoint already returns the full spell objects, each one is parsed directly without a second per-spell detail request. As a result, the CLI's `--delay` (which spaces network-backed detail fetches) is skipped for embedded `dnd5e` records; instead, `Dnd5eOpen5eSpellScraper` paces discovery pagination directly between list-page GETs (`page_delay_seconds=1.0` by default, or six inter-page pauses across the seven pages of 339 SRD spells) and retries HTTP 429 / transient 5xx responses with exponential backoff (`Retry-After` respected). The `--tradition` filter applies only to PF2e.
 
 ## Output
 
@@ -203,10 +203,22 @@ New fetchers should implement `requires_network(request) -> bool` as a side-effe
 declaration alongside `fetch(request)` to satisfy the `Fetcher` protocol. For runtime
 compatibility, legacy fetchers without this method are treated as network-backed;
 custom fetchers used with static type checking must still implement the method.
-The scrape pipeline applies `--delay`
-only between network-backed fetches (or their submissions when using workers).
-Embedded Open5e records skip this delay; AoN detail pages and Open5e detail URLs
-retain it. Discovery pagination and HTTP retries remain the adapters' responsibility.
+The scrape pipeline applies `--delay` (`run_scrape_pipeline(..., delay_seconds=...)`)
+only between network-backed detail fetches (or their submissions when using workers).
+Embedded Open5e records skip this detail-fetch delay; AoN detail pages and Open5e detail URLs
+retain it.
+
+Discovery pagination and HTTP retries remain the adapters' responsibility. For Open5e,
+`Dnd5eOpen5eSpellScraper` configures discovery pacing via `page_delay_seconds` (defaulting
+to `OPEN5E_PAGE_DELAY_SECONDS = 1.0`, or overridable per call via
+`ScrapeRequest(filters={"page_delay_seconds": ...})`), sleeping only between successive
+page requests with no initial, trailing, or per-record sleeps, and stopping immediately
+without waiting for or fetching another page once `limit` is reached. Page GET requests
+run through a `requests.Session` mounted with bounded retries (`total=3`,
+`backoff_factor=0.5`, respecting `Retry-After`) for HTTP `429`, `500`, `502`, `503`, and
+`504`. Setting `page_delay_seconds=0` disables deliberate inter-page sleeps while keeping
+retry/backoff behavior active. The scraper closes any session it creates when discovery
+finishes and leaves caller-injected sessions (`session=...`) under the caller's ownership.
 
 ## Testing
 
@@ -219,8 +231,11 @@ uv run python -m unittest discover -s tests
 Run focused offline tests:
 
 ```bash
-uv run python -m unittest tests.test_pipeline tests.test_registry tests.test_aon_scraper tests.test_scrape_pipeline tests.test_pf1e_scraper tests.test_pf2e_aon_parser tests.test_pf1e_parser
+uv run python -m unittest tests.test_pipeline tests.test_registry tests.test_aon_scraper tests.test_scrape_pipeline tests.test_pf1e_scraper tests.test_pf2e_aon_parser tests.test_pf1e_parser tests.test_dnd5e_open5e_scraper tests.test_dnd5e_open5e_parser tests.test_fetchers
 ```
+
+The Open5e transport-level retry tests bypass environment-configured proxies so their
+mocked HTTP responses remain offline. Production sessions still honor proxy settings.
 
 Run the live AoN integration test:
 

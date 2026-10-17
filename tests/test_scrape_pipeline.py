@@ -4,6 +4,8 @@ import unittest
 from unittest.mock import Mock, call, patch
 
 from rpg_parser.adapters.fetchers.open5e import Open5eJsonFetcher
+from rpg_parser.adapters.parsers.dnd5e_open5e import Dnd5eOpen5eSpellParser
+from rpg_parser.adapters.scrapers.open5e import Dnd5eOpen5eSpellScraper
 from rpg_parser.core.pipeline import run_scrape_pipeline
 from rpg_parser.core.ports import (
     ExportTarget,
@@ -189,6 +191,79 @@ class TestScrapePipeline(unittest.TestCase):
         )
 
         self.assertEqual(records, [{"Name": "one"}, {"Name": "two"}])
+
+    def test_open5e_scrape_pipeline_paces_only_between_pages_in_both_modes(self):
+        pages = [
+            {
+                "next": "https://api.open5e.com/v2/spells/?page=2",
+                "results": [
+                    {"key": "srd-2024_acid-arrow", "name": "Acid Arrow", "level": 2},
+                    {"key": "srd-2024_aid", "name": "Aid", "level": 2},
+                ],
+            },
+            {
+                "next": "https://api.open5e.com/v2/spells/?page=3",
+                "results": [
+                    {"key": "srd-2024_alarm", "name": "Alarm", "level": 1},
+                    {"key": "srd-2024_alter-self", "name": "Alter Self", "level": 2},
+                ],
+            },
+            {
+                "next": None,
+                "results": [
+                    {"key": "srd-2024_animal-friendship", "name": "Animal Friendship", "level": 1},
+                ],
+            },
+        ]
+
+        results_by_mode = {}
+        for workers in (1, 4):
+            for page_delay in (0.25, 0):
+                with self.subTest(workers=workers, page_delay=page_delay):
+                    scraper_session = Mock()
+                    scraper_session.get.side_effect = [
+                        Mock(json=Mock(return_value=page), raise_for_status=Mock(return_value=None))
+                        for page in pages
+                    ]
+                    fetcher_session = Mock()
+                    exporter = FakeExporter()
+                    spec = ScrapePipelineSpec(
+                        scraper=Dnd5eOpen5eSpellScraper(
+                            page_delay_seconds=page_delay,
+                            session=scraper_session,
+                        ),
+                        fetcher=Open5eJsonFetcher(session=fetcher_session),
+                        parser=Dnd5eOpen5eSpellParser(),
+                        exporter=exporter,
+                    )
+
+                    # Use a large pipeline delay_seconds=5.0 to verify embedded records never
+                    # trigger detail-fetch sleeps; only the scraper's inter-page delay runs.
+                    with patch("rpg_parser.core.pipeline.time.sleep") as mock_sleep:
+                        records = run_scrape_pipeline(
+                            spec,
+                            ScrapeRequest(),
+                            delay_seconds=5.0,
+                            max_workers=workers,
+                        )
+
+                    self.assertEqual(scraper_session.get.call_count, 3)
+                    fetcher_session.get.assert_not_called()
+                    expected_sleeps = [call(page_delay), call(page_delay)] if page_delay else []
+                    self.assertEqual(mock_sleep.call_args_list, expected_sleeps)
+                    self.assertEqual(
+                        [record["key"] for record in records],
+                        [
+                            "srd-2024_acid-arrow",
+                            "srd-2024_aid",
+                            "srd-2024_alarm",
+                            "srd-2024_alter-self",
+                            "srd-2024_animal-friendship",
+                        ],
+                    )
+                    results_by_mode[workers] = records
+
+        self.assertEqual(results_by_mode[1], results_by_mode[4])
 
 
 if __name__ == "__main__":
